@@ -1,0 +1,45 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+
+export default function PWASplash() {
+  const [showSplash, setShowSplash] = useState(false);
+
+  useEffect(() => {
+    // Only show splash in standalone mode
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true;
+
+    // Only show on first load (not on subsequent navigations)
+    const hasShownSplash = sessionStorage.getItem('splashShown');
+
+    if (isStandalone && !hasShownSplash) {
+      setShowSplash(true);
+      sessionStorage.setItem('splashShown', 'true');
+
+      const timer = setTimeout(() => setShowSplash(false), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  if (!showSplash) return null;
+
+  return (
+    <div className="pwa-splash" aria-hidden="true">
+      <div className="pwa-splash-logo mb-8">
+        <img
+          src="/logo-white.png"
+          alt="Rayma Kitchenware"
+          className="w-64 h-auto object-contain"
+        />
+      </div>
+      <p className="text-white/70 text-sm font-medium mb-8 tracking-widest uppercase">Kitchen Boss</p>
+      <div className="pwa-splash-dots flex gap-1.5">
+        <span className="w-2 h-2 bg-white rounded-full" />
+        <span className="w-2 h-2 bg-white rounded-full" />
+        <span className="w-2 h-2 bg-white rounded-full" />
+      </div>
+    </div>
+  );
+}
