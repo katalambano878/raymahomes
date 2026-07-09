@@ -525,7 +525,7 @@ export default function ProductForm({ initialData, isEditMode = false }: Product
                                     className="w-5 h-5 text-blue-700 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
                                 />
                                 <label className="text-gray-900 font-medium">
-                                    Feature this product on homepage
+                                    Feature this product on homepage (up to 12 shown)
                                 </label>
                             </div>
 

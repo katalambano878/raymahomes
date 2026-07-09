@@ -51,7 +51,9 @@ export default function FeaturedProducts() {
   useEffect(() => {
     async function fetchFeatured() {
       try {
-        const res = await fetch('/api/storefront/products?featured=true&limit=8');
+        const res = await fetch('/api/storefront/products?featured=true&limit=12', {
+          cache: 'no-store',
+        });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data)) {

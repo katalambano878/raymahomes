@@ -1,14 +1,55 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import ProductCard, { type ColorVariant } from '@/components/ProductCard';
 import ProductCardSkeleton from '@/components/skeletons/ProductCardSkeleton';
 import { getColorHex } from '@/components/ProductCard';
 import { supabase } from '@/lib/supabase';
-import { cachedQuery } from '@/lib/query-cache';
 import PageHero from '@/components/PageHero';
+
+const PRODUCTS_PER_PAGE = 12;
+
+function formatShopProduct(p: any) {
+  const variants = p.product_variants || [];
+  const hasVariants = variants.length > 0;
+  const minVariantPrice = hasVariants ? Math.min(...variants.map((v: any) => v.price || p.price)) : undefined;
+  const totalVariantStock = hasVariants ? variants.reduce((sum: number, v: any) => sum + (v.quantity || 0), 0) : 0;
+  const effectiveStock = hasVariants ? totalVariantStock : p.quantity;
+
+  const colorVariants: ColorVariant[] = [];
+  const seenColors = new Set<string>();
+  for (const v of variants) {
+    const colorName = v.option2;
+    if (colorName && !seenColors.has(colorName.toLowerCase().trim())) {
+      const hex = getColorHex(colorName);
+      if (hex) {
+        seenColors.add(colorName.toLowerCase().trim());
+        colorVariants.push({ name: colorName.trim(), hex });
+      }
+    }
+  }
+
+  return {
+    id: p.id,
+    slug: p.slug,
+    name: p.name,
+    price: p.price,
+    originalPrice: p.compare_at_price,
+    image: p.product_images?.[0]?.url || 'https://via.placeholder.com/800x800?text=No+Image',
+    rating: p.rating_avg || 0,
+    reviewCount: 0,
+    badge: p.compare_at_price > p.price ? 'Sale' : undefined,
+    inStock: effectiveStock > 0,
+    maxStock: effectiveStock || 50,
+    moq: p.moq || 1,
+    category: p.categories?.name,
+    hasVariants,
+    minVariantPrice,
+    colorVariants,
+  };
+}
 
 function ShopContent() {
   usePageTitle('Shop All Products');
@@ -27,7 +68,10 @@ function ShopContent() {
   const [sortBy, setSortBy] = useState('popular');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
-  const productsPerPage = 9;
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const productsPerPage = PRODUCTS_PER_PAGE;
 
   // Initialize from URL params
   useEffect(() => {
@@ -56,146 +100,136 @@ function ShopContent() {
     fetchCategories();
   }, []);
 
-  // Fetch Products
-  useEffect(() => {
-    async function fetchProducts() {
+  const filterKey = useMemo(
+    () =>
+      `${selectedCategory}|${searchParams.get('search') || ''}|${priceRange.join('-')}|${selectedRating}|${sortBy}`,
+    [selectedCategory, searchParams, priceRange, selectedRating, sortBy]
+  );
+
+  const fetchProducts = useCallback(async (pageNum: number, append: boolean) => {
+    if (pageNum === 1) {
       setLoading(true);
-      try {
-        const search = searchParams.get('search');
-
-        // Build cache key from all filter params
-        const cacheKey = `shop:${selectedCategory}:${search || ''}:${priceRange.join('-')}:${selectedRating}:${sortBy}:${page}`;
-
-        const { data, count, error } = await cachedQuery<{ data: any; count: any; error: any }>(
-          cacheKey,
-          async () => {
-            let query = supabase
-              .from('products')
-              .select(`
-                *,
-                categories!inner(name, slug),
-                product_images!product_id(url, position),
-                product_variants(id, name, price, quantity, option1, option2, image_url)
-              `, { count: 'exact' })
-              .order('position', { foreignTable: 'product_images', ascending: true });
-
-            // Search
-            if (search) {
-              query = query.ilike('name', `%${search}%`);
-            }
-
-            // Category Filter with Subcategories
-            if (selectedCategory !== 'all') {
-              const categoryObj = categories.find(c => c.slug === selectedCategory);
-
-              if (categoryObj) {
-                const targetSlugs = [selectedCategory];
-                const childSlugs = categories
-                  .filter(c => c.parent_id === categoryObj.id)
-                  .map(c => c.slug);
-                targetSlugs.push(...childSlugs);
-                query = query.in('categories.slug', targetSlugs);
-              } else {
-                query = query.eq('categories.slug', selectedCategory);
-              }
-            }
-
-            // Price Filter
-            if (priceRange[1] < 5000) {
-              query = query.gte('price', priceRange[0]).lte('price', priceRange[1]);
-            }
-
-            // Rating Filter
-            if (selectedRating > 0) {
-              query = query.gte('rating_avg', selectedRating);
-            }
-
-            // Sorting
-            switch (sortBy) {
-              case 'price-low':
-                query = query.order('price', { ascending: true });
-                break;
-              case 'price-high':
-                query = query.order('price', { ascending: false });
-                break;
-              case 'rating':
-                query = query.order('rating_avg', { ascending: false });
-                break;
-              case 'new':
-                query = query.order('created_at', { ascending: false });
-                break;
-              case 'popular':
-              default:
-                query = query.order('created_at', { ascending: false });
-                break;
-            }
-
-            // Pagination
-            const from = (page - 1) * productsPerPage;
-            const to = from + productsPerPage - 1;
-            query = query.range(from, to);
-
-            return query as any;
-          },
-          2 * 60 * 1000 // Cache for 2 minutes
-        );
-
-        if (error) throw error;
-
-        if (data) {
-          const formattedProducts = data.map((p: any) => {
-            const variants = p.product_variants || [];
-            const hasVariants = variants.length > 0;
-            const minVariantPrice = hasVariants ? Math.min(...variants.map((v: any) => v.price || p.price)) : undefined;
-            const totalVariantStock = hasVariants ? variants.reduce((sum: number, v: any) => sum + (v.quantity || 0), 0) : 0;
-            const effectiveStock = hasVariants ? totalVariantStock : p.quantity;
-            // Extract unique colors from option2
-            const colorVariants: ColorVariant[] = [];
-            const seenColors = new Set<string>();
-            for (const v of variants) {
-              const colorName = v.option2;
-              if (colorName && !seenColors.has(colorName.toLowerCase().trim())) {
-                const hex = getColorHex(colorName);
-                if (hex) {
-                  seenColors.add(colorName.toLowerCase().trim());
-                  colorVariants.push({ name: colorName.trim(), hex });
-                }
-              }
-            }
-
-            return {
-              id: p.id,           // Product UUID for cart/orders
-              slug: p.slug,       // Slug for navigation
-              name: p.name,
-              price: p.price,
-              originalPrice: p.compare_at_price,
-              image: p.product_images?.[0]?.url || 'https://via.placeholder.com/800x800?text=No+Image',
-              rating: p.rating_avg || 0,
-              reviewCount: 0, // Need to implement reviews relation
-              badge: p.compare_at_price > p.price ? 'Sale' : undefined, // Simple badge logic
-              inStock: effectiveStock > 0,
-              maxStock: effectiveStock || 50,
-              moq: p.moq || 1,
-              category: p.categories?.name,
-              hasVariants,
-              minVariantPrice,
-              colorVariants
-            };
-          });
-          setProducts(formattedProducts);
-          setTotalProducts(count || 0);
-        }
-      } catch (err) {
-        console.error('Error fetching products:', err);
-      } finally {
-        setLoading(false);
-      }
+    } else {
+      setLoadingMore(true);
     }
 
-    fetchProducts();
-  }, [selectedCategory, priceRange, selectedRating, sortBy, page, searchParams]);
+    try {
+      const search = searchParams.get('search');
 
-  const totalPages = Math.ceil(totalProducts / productsPerPage);
+      let query = supabase
+        .from('products')
+        .select(`
+          *,
+          categories!inner(name, slug),
+          product_images!product_id(url, position),
+          product_variants(id, name, price, quantity, option1, option2, image_url)
+        `, { count: 'exact' })
+        .eq('status', 'active')
+        .order('position', { foreignTable: 'product_images', ascending: true });
+
+      if (search) {
+        query = query.ilike('name', `%${search}%`);
+      }
+
+      if (selectedCategory !== 'all') {
+        const categoryObj = categories.find(c => c.slug === selectedCategory);
+
+        if (categoryObj) {
+          const targetSlugs = [selectedCategory];
+          const childSlugs = categories
+            .filter(c => c.parent_id === categoryObj.id)
+            .map(c => c.slug);
+          targetSlugs.push(...childSlugs);
+          query = query.in('categories.slug', targetSlugs);
+        } else {
+          query = query.eq('categories.slug', selectedCategory);
+        }
+      }
+
+      if (priceRange[1] < 5000) {
+        query = query.gte('price', priceRange[0]).lte('price', priceRange[1]);
+      }
+
+      if (selectedRating > 0) {
+        query = query.gte('rating_avg', selectedRating);
+      }
+
+      switch (sortBy) {
+        case 'price-low':
+          query = query.order('price', { ascending: true });
+          break;
+        case 'price-high':
+          query = query.order('price', { ascending: false });
+          break;
+        case 'rating':
+          query = query.order('rating_avg', { ascending: false });
+          break;
+        case 'new':
+          query = query.order('created_at', { ascending: false });
+          break;
+        case 'popular':
+        default:
+          query = query.order('created_at', { ascending: false });
+          break;
+      }
+
+      const from = (pageNum - 1) * productsPerPage;
+      const to = from + productsPerPage - 1;
+      query = query.range(from, to);
+
+      const { data, count, error } = await query;
+
+      if (error) throw error;
+
+      const formattedProducts = (data || []).map(formatShopProduct);
+      setProducts((prev) => (append ? [...prev, ...formattedProducts] : formattedProducts));
+      setTotalProducts(count || 0);
+      setHasMore(formattedProducts.length === productsPerPage && (count || 0) > from + formattedProducts.length);
+    } catch (err) {
+      console.error('Error fetching products:', err);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, [categories, priceRange, productsPerPage, searchParams, selectedCategory, selectedRating, sortBy]);
+
+  // Load first page when filters change
+  useEffect(() => {
+    setProducts([]);
+    setHasMore(true);
+    setPage(1);
+    fetchProducts(1, false);
+  }, [filterKey, fetchProducts]);
+
+  // Load more pages on infinite scroll
+  useEffect(() => {
+    if (page <= 1) return;
+    fetchProducts(page, true);
+  }, [page, fetchProducts]);
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !hasMore || loading || loadingMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMore && !loading && !loadingMore) {
+          setPage((p) => p + 1);
+        }
+      },
+      { rootMargin: '200px' }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore]);
+
+  const resetFilters = () => {
+    setSelectedCategory('all');
+    setPriceRange([0, 5000]);
+    setSelectedRating(0);
+    setPage(1);
+  };
 
   return (
     <main className="min-h-screen bg-white">
@@ -418,48 +452,31 @@ function ShopContent() {
                       <h3 className="text-2xl font-bold text-gray-900 mb-2">No Products Found</h3>
                       <p className="text-gray-600 mb-8">Try adjusting your filters to find what you're looking for</p>
                       <button
-                        onClick={() => {
-                          setSelectedCategory('all');
-                          setPriceRange([0, 5000]);
-                          setSelectedRating(0);
-                          setPage(1);
-                        }}
+                        onClick={resetFilters}
                         className="inline-flex items-center bg-gray-900 hover:bg-brand text-white px-6 py-3 rounded-lg font-medium transition-colors whitespace-nowrap"
                       >
                         Clear All Filters
                       </button>
                     </div>
                   )}
+
+                  {loadingMore && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mt-8">
+                      {[...Array(3)].map((_, i) => (
+                        <ProductCardSkeleton key={`more-${i}`} />
+                      ))}
+                    </div>
+                  )}
+
+                  <div ref={loadMoreRef} className="h-10 mt-8" aria-hidden="true" />
+
+                  {!hasMore && products.length > 0 && (
+                    <p className="text-center text-gray-500 mt-8 py-4">You&apos;ve seen all products</p>
+                  )}
                 </>
               )}
 
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="mt-16 flex justify-center">
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => setPage(p => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <i className="ri-arrow-left-s-line text-xl text-gray-700"></i>
-                    </button>
-
-                    {/* Simple page numbers - condensed for brevity */}
-                    <span className="px-4 font-medium text-gray-700">
-                      Page {page} of {totalPages}
-                    </span>
-
-                    <button
-                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                      disabled={page === totalPages}
-                      className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <i className="ri-arrow-right-s-line text-xl text-gray-700"></i>
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Pagination removed — infinite scroll */}
             </div>
           </div>
         </div>

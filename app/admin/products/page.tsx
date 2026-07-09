@@ -19,7 +19,8 @@ export default function ProductsPage() {
     total: 0,
     lowStock: 0,
     outOfStock: 0,
-    active: 0
+    active: 0,
+    featured: 0,
   });
 
   const statusColors: any = {
@@ -82,7 +83,8 @@ export default function ProductsPage() {
           total: transformedProducts.length,
           lowStock: transformedProducts.filter(p => p.quantity < (p.metadata?.low_stock_threshold || 5) && p.quantity > 0).length,
           outOfStock: transformedProducts.filter(p => p.quantity === 0).length,
-          active: transformedProducts.filter(p => p.status === 'active').length
+          active: transformedProducts.filter(p => p.status === 'active').length,
+          featured: transformedProducts.filter(p => p.featured).length,
         });
       }
     } catch (error) {
@@ -133,6 +135,32 @@ export default function ProductsPage() {
     }
   };
 
+  const setFeaturedForProducts = async (ids: string[], featured: boolean) => {
+    if (ids.length === 0) return;
+    const { error } = await supabase.from('products').update({ featured }).in('id', ids);
+    if (error) {
+      alert('Error updating featured status');
+      return;
+    }
+    setProducts((prev) =>
+      prev.map((p) => (ids.includes(p.id) ? { ...p, featured } : p))
+    );
+    setStats((prev) => ({
+      ...prev,
+      featured: products.filter((p) =>
+        ids.includes(p.id) ? featured : p.featured
+      ).length + products.filter((p) => !ids.includes(p.id) && p.featured).length,
+    }));
+    fetchProducts();
+  };
+
+  const handleToggleFeatured = async (productId: string, current: boolean) => {
+    await setFeaturedForProducts([productId], !current);
+  };
+
+  const handleBulkFeature = () => setFeaturedForProducts(selectedProducts, true);
+  const handleBulkUnfeature = () => setFeaturedForProducts(selectedProducts, false);
+
   const filteredProducts = products.filter(product => {
     const term = searchQuery.toLowerCase();
     return product.name.toLowerCase().includes(term) ||
@@ -156,7 +184,7 @@ export default function ProductsPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl border-2 border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Total Products</p>
           <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
@@ -164,6 +192,11 @@ export default function ProductsPage() {
         <div className="bg-white rounded-xl border-2 border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Active</p>
           <p className="text-2xl font-bold text-blue-700">{stats.active}</p>
+        </div>
+        <div className="bg-white rounded-xl border-2 border-amber-200 p-4">
+          <p className="text-sm text-gray-600 mb-1">Featured (Homepage)</p>
+          <p className="text-2xl font-bold text-amber-600">{stats.featured}</p>
+          <p className="text-xs text-gray-500 mt-1">Up to 12 shown on homepage</p>
         </div>
         <div className="bg-white rounded-xl border-2 border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Low Stock</p>
@@ -252,6 +285,19 @@ export default function ProductsPage() {
             </p>
             <div className="flex items-center space-x-2">
               <button
+                onClick={handleBulkFeature}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap cursor-pointer"
+              >
+                <i className="ri-star-fill mr-1"></i>
+                Feature
+              </button>
+              <button
+                onClick={handleBulkUnfeature}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap cursor-pointer"
+              >
+                Unfeature
+              </button>
+              <button
                 onClick={handleBulkDelete}
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap cursor-pointer"
               >
@@ -290,6 +336,7 @@ export default function ProductsPage() {
                   <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700">Category</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700">Price</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700">Stock</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700">Featured</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700">Status</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700">Actions</th>
                 </tr>
@@ -329,6 +376,20 @@ export default function ProductsPage() {
                       {product.stock === 0 && (
                         <span className="ml-2 w-2 h-2 rounded-full bg-red-500 inline-block" title="Out of Stock"></span>
                       )}
+                    </td>
+                    <td className="py-4 px-4">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFeatured(product.id, !!product.featured)}
+                        title={product.featured ? 'Remove from homepage' : 'Feature on homepage'}
+                        className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${
+                          product.featured
+                            ? 'text-amber-500 bg-amber-50 hover:bg-amber-100'
+                            : 'text-gray-300 hover:text-amber-400 hover:bg-gray-50'
+                        }`}
+                      >
+                        <i className={`${product.featured ? 'ri-star-fill' : 'ri-star-line'} text-lg`}></i>
+                      </button>
                     </td>
                     <td className="py-4 px-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap capitalize ${statusColors[product.status] || 'bg-gray-100 text-gray-600'}`}>
