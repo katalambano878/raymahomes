@@ -31,7 +31,12 @@ function formatProduct(p: any) {
     name: p.name,
     price: p.price,
     originalPrice: p.compare_at_price,
-    image: p.product_images?.[0]?.url || 'https://via.placeholder.com/800x800?text=No+Image',
+    image: (() => {
+      const images = Array.isArray(p.product_images)
+        ? [...p.product_images].sort((a: any, b: any) => (a?.position ?? 0) - (b?.position ?? 0))
+        : [];
+      return images[0]?.url || '/placeholder-product.svg';
+    })(),
     rating: p.rating_avg || 0,
     reviewCount: 0,
     badge: p.featured ? 'Featured' : (p.compare_at_price && p.compare_at_price > p.price ? 'Sale' : undefined),

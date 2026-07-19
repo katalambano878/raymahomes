@@ -31,13 +31,17 @@ function formatShopProduct(p: any) {
     }
   }
 
+  const images = Array.isArray(p.product_images)
+    ? [...p.product_images].sort((a, b) => (a?.position ?? 0) - (b?.position ?? 0))
+    : [];
+
   return {
     id: p.id,
     slug: p.slug,
     name: p.name,
     price: p.price,
     originalPrice: p.compare_at_price,
-    image: p.product_images?.[0]?.url || 'https://via.placeholder.com/800x800?text=No+Image',
+    image: images[0]?.url || '/placeholder-product.svg',
     rating: p.rating_avg || 0,
     reviewCount: 0,
     badge: p.compare_at_price > p.price ? 'Sale' : undefined,
@@ -120,8 +124,8 @@ function ShopContent() {
         .from('products')
         .select(`
           *,
-          categories!inner(name, slug),
-          product_images!product_id(url, position),
+          categories(name, slug),
+          product_images(url, position),
           product_variants(id, name, price, quantity, option1, option2, image_url)
         `, { count: 'exact' })
         .eq('status', 'active');

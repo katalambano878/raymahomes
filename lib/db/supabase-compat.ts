@@ -111,19 +111,36 @@ function parseSelect(sel: string): ParsedSelect {
       // Three supported PostgREST forms:
       //   alias:fk_column (cols)              e.g. groups:group_id(...)
       //   alias:table!fk_constraint (cols)    e.g. user:users!group_memberships_user_id_fkey(...)
+      //   table!hint (cols)                   e.g. product_images!product_id(...) [reverse]
+      //                                       or categories!inner(...) [join hint — ignore]
       //   table (cols)                        e.g. group_memberships(...)  [reverse]
       if (rhs.includes("!")) {
-        const [tableName, constraint] = rhs.split("!");
-        // constraint name convention: <owning_table>_<fk_column>_fkey
-        const fkColumn = constraint.replace(/_fkey$/, "").split("_").length
-          ? deriveFkFromConstraint(constraint)
-          : undefined;
-        result.embeds.push({
-          alias,
-          table: tableName.trim(),
-          fkColumn,
-          select: parseSelect(inner),
-        });
+        const [tableNameRaw, constraintRaw] = rhs.split("!");
+        const tableName = tableNameRaw.trim();
+        const constraint = (constraintRaw || "").trim();
+        // Join modifiers (!inner / !left) — treat as plain reverse/forward table embed
+        if (constraint === "inner" || constraint === "left") {
+          result.embeds.push({
+            alias,
+            table: tableName,
+            select: parseSelect(inner),
+          });
+        } else {
+          // Prefer reverse-embed semantics when the hint is an FK column that
+          // lives on the EMBEDDED table (e.g. product_images!product_id).
+          // Only treat as forward (parent.fk → child.id) when the hint looks
+          // like a full constraint name (..._fkey) pointing at a parent FK.
+          const isFullConstraint = /_fkey$/i.test(constraint);
+          const fkColumn = isFullConstraint
+            ? deriveFkFromConstraint(constraint)
+            : undefined;
+          result.embeds.push({
+            alias,
+            table: tableName,
+            fkColumn,
+            select: parseSelect(inner),
+          });
+        }
       } else {
         const resolved = resolveEmbed(alias, rhs);
         result.embeds.push({
