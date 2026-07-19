@@ -653,8 +653,13 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any; count: number
         let related: Row[] = [];
         if (parentIds.length) {
           const ph = parentIds.map((_, i) => `$${i + 1}`).join(",");
+          // Prefer stable gallery order when embed selects a position column
+          const orderBy =
+            embed.select.star || embed.select.columns.includes("position")
+              ? ` ORDER BY ${ident("position")} ASC NULLS LAST`
+              : "";
           const res = await pool.query(
-            `SELECT ${innerCols} FROM ${ident(embedTable)} WHERE ${ident(fkCol)} IN (${ph})`,
+            `SELECT ${innerCols} FROM ${ident(embedTable)} WHERE ${ident(fkCol)} IN (${ph})${orderBy}`,
             parentIds
           );
           related = res.rows;
@@ -937,6 +942,17 @@ export function applyPostgrestParams(
   opts?: { preferSingle?: boolean }
 ): QueryBuilder {
   for (const [key, raw] of searchParams.entries()) {
+    // Nested embed modifiers from supabase-js, e.g.
+    //   product_images.order=position.asc
+    //   product_images.limit=10
+    // Compat resolves embeds without these; skip so they aren't parsed as filters
+    // ("Unsupported operator: position").
+    if (key.includes(".")) {
+      const nested = key.split(".").pop();
+      if (nested === "order" || nested === "limit" || nested === "offset") {
+        continue;
+      }
+    }
     if (key === "select") {
       qb.select(raw);
       continue;

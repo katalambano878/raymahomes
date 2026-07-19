@@ -1,12 +1,20 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 24;
+
+function sortImages(products: any[] | null) {
+    if (!products) return [];
+    return products.map((p) => {
+        const images = Array.isArray(p.product_images)
+            ? [...p.product_images].sort(
+                  (a, b) => (a?.position ?? 0) - (b?.position ?? 0)
+              )
+            : p.product_images;
+        return { ...p, product_images: images };
+    });
+}
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
@@ -18,7 +26,7 @@ export async function GET(request: Request) {
     const category = searchParams.get('category');
 
     try {
-        let query = supabase
+        let query = supabaseAdmin
             .from('products')
             .select(`
                 id, name, slug, price, compare_at_price, quantity, description, metadata, featured,
@@ -26,8 +34,7 @@ export async function GET(request: Request) {
                 product_images(url, position),
                 product_variants(id, name, price, quantity, option1, option2, image_url)
             `)
-            .eq('status', 'active')
-            .order('position', { foreignTable: 'product_images', ascending: true });
+            .eq('status', 'active');
 
         if (featured) {
             query = query.eq('featured', true).order('updated_at', { ascending: false }).limit(limit);
@@ -44,7 +51,7 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Failed to fetch products' }, { status: 500 });
         }
 
-        return NextResponse.json(data ?? [], {
+        return NextResponse.json(sortImages(data), {
             headers: {
                 'Cache-Control': featured
                     ? 'public, s-maxage=60, stale-while-revalidate=120'
