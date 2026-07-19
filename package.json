@@ -7,7 +7,9 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^3.0.2",
-    "resend": "^6.9.1"
+    "resend": "^6.9.1",
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -21,14 +23,19 @@
     "postcss": "^8.5.5",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5"
+    "typescript": "^5",
+    "@types/pg": "^8.20.0",
+    "@types/bcryptjs": "^2.4.6",
+    "dotenv-cli": "^11.0.0"
   },
   "name": "classy-debbie-collection",
   "private": true,
   "scripts": {
     "build": "next build",
     "dev": "cross-env NODE_ENV=development next dev -H 0.0.0.0 -p 3000",
-    "lint": "next lint"
+    "lint": "next lint",
+    "start": "next start -H 0.0.0.0 -p 3000",
+    "dev:staging": "dotenv -e .env.staging -- cross-env NODE_ENV=development next dev -H 0.0.0.0 -p 3000"
   },
   "version": "0.1.0"
 }
