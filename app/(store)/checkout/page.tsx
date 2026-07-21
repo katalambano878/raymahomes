@@ -7,6 +7,7 @@ import CheckoutSteps from '@/components/CheckoutSteps';
 import OrderSummary from '@/components/OrderSummary';
 import { useCart } from '@/context/CartContext';
 import { supabase } from '@/lib/supabase';
+import { resolveCartProductIds } from '@/lib/cart/product-id';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useRecaptcha } from '@/hooks/useRecaptcha';
 
@@ -175,42 +176,34 @@ export default function CheckoutPage() {
 
       if (orderError) throw orderError;
 
-      // 2. Create Order Items (with UUID validation)
-      // Helper to check if string is a valid UUID
-      const isValidUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
-      
-      // Build order items, resolving slugs to UUIDs if needed
-      const orderItems = [];
-      
-      // Batch-fetch product metadata (for preorder_shipping etc.)
-      const productIds = cart.map(item => item.id).filter(id => isValidUUID(id));
-      const { data: productsData } = productIds.length > 0
-        ? await supabase.from('products').select('id, metadata').in('id', productIds)
-        : { data: [] };
-      const productMetaMap = new Map((productsData || []).map((p: any) => [p.id, p.metadata]));
-      
-      for (const item of cart) {
-        let productId = item.id;
-        
-        // If id is not a valid UUID, it might be a slug - try to resolve it
-        if (!isValidUUID(productId)) {
-          const { data: product } = await supabase
+      // 2. Create Order Items — resolve IDs against live catalog.
+      // Stale localStorage carts often keep UUIDs for deleted products; those must
+      // become null product_id (nullable FK) or checkout hits order_items_product_id_fkey.
+      const { resolved, missingNames } = await resolveCartProductIds(
+        cart,
+        async (ids) => {
+          const { data } = await supabase.from('products').select('id, metadata').in('id', ids);
+          return data || [];
+        },
+        async (slugOrId) => {
+          const { data } = await supabase
             .from('products')
             .select('id, metadata')
-            .or(`slug.eq.${productId},id.eq.${productId}`)
-            .single();
-          
-          if (product) {
-            productId = product.id;
-            productMetaMap.set(product.id, product.metadata);
-          } else {
-            throw new Error(`Product not found: ${item.name}. Please remove it from your cart and try again.`);
-          }
+            .or(`slug.eq.${slugOrId},id.eq.${slugOrId}`)
+            .maybeSingle();
+          return data;
         }
-        
-        const prodMeta = productMetaMap.get(productId);
-        
-        orderItems.push({
+      );
+
+      if (missingNames.length === cart.length) {
+        throw new Error(
+          `None of the items in your cart are available anymore (${missingNames.join(', ')}). Clear your cart and add products again.`
+        );
+      }
+
+      const orderItems = resolved.map(({ productId, metadata: prodMeta }, index) => {
+        const item = cart[index];
+        return {
           order_id: order.id,
           product_id: productId,
           product_name: item.name,
@@ -221,10 +214,12 @@ export default function CheckoutPage() {
           metadata: {
             image: item.image,
             slug: item.slug,
-            preorder_shipping: prodMeta?.preorder_shipping || null
-          }
-        });
-      }
+            preorder_shipping:
+              (prodMeta as { preorder_shipping?: unknown } | null)?.preorder_shipping || null,
+            catalog_missing: productId === null,
+          },
+        };
+      });
 
       const { error: itemsError } = await supabase
         .from('order_items')

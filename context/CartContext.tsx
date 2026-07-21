@@ -1,6 +1,8 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { supabase } from '@/lib/supabase';
+import { isValidUUID } from '@/lib/cart/product-id';
 
 export type CartItem = {
     id: string;
@@ -33,40 +35,64 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const [isCartOpen, setIsCartOpen] = useState(false);
     const [isInitialized, setIsInitialized] = useState(false);
 
-    // Load cart from localStorage on mount, with migration for legacy items
+    // Load cart from localStorage on mount, prune legacy + deleted-product IDs
     useEffect(() => {
-        const savedCart = localStorage.getItem('cart');
-        if (savedCart) {
+        let cancelled = false;
+
+        (async () => {
+            const savedCart = localStorage.getItem('cart');
+            if (!savedCart) {
+                setIsInitialized(true);
+                return;
+            }
+
             try {
                 const parsed: CartItem[] = JSON.parse(savedCart);
-                // Migrate legacy cart items: if `id` is not a UUID, it's likely a slug
-                const isValidUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
-                const migratedCart = parsed.filter(item => {
-                    if (!item.id || !item.name || !item.price) return false; // Remove corrupted items
+                let migratedCart = parsed.filter((item) => {
+                    if (!item.id || !item.name || !item.price) return false;
                     if (!isValidUUID(item.id)) {
-                        // Legacy item with slug as id - ensure slug is set, then clear
-                        // These items will be resolved at checkout via the slug fallback
-                        // But best to remove them so users re-add with correct UUIDs
                         console.warn(`Removing legacy cart item with non-UUID id: ${item.id}`);
                         return false;
                     }
-                    // Ensure slug field exists
                     if (!item.slug) {
                         item.slug = item.id;
                     }
                     return true;
                 });
-                setCart(migratedCart);
-                // If items were removed, update localStorage immediately
-                if (migratedCart.length !== parsed.length) {
-                    localStorage.setItem('cart', JSON.stringify(migratedCart));
+
+                // Drop lines whose product was deleted (stale carts after catalog / migration)
+                const ids = migratedCart.map((i) => i.id);
+                if (ids.length > 0) {
+                    const { data } = await supabase.from('products').select('id').in('id', ids);
+                    if (!cancelled && data) {
+                        const live = new Set(data.map((p: { id: string }) => p.id));
+                        const before = migratedCart.length;
+                        migratedCart = migratedCart.filter((i) => live.has(i.id));
+                        if (migratedCart.length !== before) {
+                            console.warn(
+                                `Removed ${before - migratedCart.length} cart item(s) no longer in catalog`
+                            );
+                        }
+                    }
+                }
+
+                if (!cancelled) {
+                    setCart(migratedCart);
+                    if (migratedCart.length !== parsed.length) {
+                        localStorage.setItem('cart', JSON.stringify(migratedCart));
+                    }
                 }
             } catch (e) {
                 console.error('Failed to parse cart:', e);
                 localStorage.removeItem('cart');
+            } finally {
+                if (!cancelled) setIsInitialized(true);
             }
-        }
-        setIsInitialized(true);
+        })();
+
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     // Save cart to localStorage whenever it changes
