@@ -1,6 +1,8 @@
 'use client';
 
 import { money } from '@/lib/format-money';
+
+interface FreeShippingBarProps {
   currentAmount: number;
   threshold?: number;
 }
