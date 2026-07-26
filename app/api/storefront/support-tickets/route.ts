@@ -1,22 +1,17 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 export async function GET(request: Request) {
   try {
     const authHeader = request.headers.get('authorization');
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: authHeader ? { Authorization: authHeader } : {} },
-    });
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+    const { data: { user } } = await supabaseAdmin.auth.getUser(token);
 
-    const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json([]);
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('support_tickets')
       .select('id, ticket_number, subject, category, status, priority, created_at, updated_at')
       .or(`user_id.eq.${user.id},email.eq.${user.email}`)

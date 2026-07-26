@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useCart } from '@/context/CartContext';
+import { money } from '@/lib/format-money';
 
 interface MiniCartProps {
   isOpen: boolean;
@@ -104,7 +105,7 @@ export default function MiniCart({ isOpen, onClose }: MiniCartProps) {
 
                       <div className="flex items-center justify-between mt-2 gap-2">
                         <span className="text-lg font-bold text-gray-900">
-                          GH₵{Number(item.price).toFixed(2)}
+                          GH₵{money(item.price)}
                         </span>
 
                         <div className="flex items-center border border-gray-300 rounded bg-white">
@@ -153,7 +154,7 @@ export default function MiniCart({ isOpen, onClose }: MiniCartProps) {
             <div className="border-t border-gray-200 px-5 py-4 bg-gray-50 shrink-0">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm text-gray-700 font-medium">Subtotal</span>
-                <span className="text-lg font-bold text-gray-900">GH₵{subtotal.toFixed(2)}</span>
+                <span className="text-lg font-bold text-gray-900">GH₵{money(subtotal)}</span>
               </div>
 
               <p className="text-xs text-gray-500 mb-3">Shipping calculated at checkout</p>

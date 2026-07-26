@@ -1,9 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -11,7 +7,7 @@ export async function GET(request: Request) {
 
   try {
     const now = new Date().toISOString();
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('banners')
       .select('*')
       .eq('is_active', true)
