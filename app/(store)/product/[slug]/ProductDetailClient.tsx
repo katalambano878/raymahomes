@@ -446,7 +446,7 @@ export default function ProductDetailClient({ slug }: { slug: string }) {
                       <div className="mb-8">
                         <label className="block font-semibold text-gray-900 mb-3">
                           Variant: {selectedVariant ? (
-                            <span className="text-brand-dark font-normal">{selectedVariant.name} — GH₵ {money(selectedVariant.price?)}</span>
+                            <span className="text-brand-dark font-normal">{selectedVariant.name} — GH₵ {money(selectedVariant.price)}</span>
                           ) : (
                             <span className="text-red-500 font-normal text-sm">Please select a variant</span>
                           )}
@@ -488,7 +488,7 @@ export default function ProductDetailClient({ slug }: { slug: string }) {
                       <div className="mb-8">
                         <label className="block font-semibold text-gray-900 mb-3">
                           Size / Type: {selectedVariant ? (
-                            <span className="text-brand-dark font-normal">{selectedVariant.name} — GH₵ {money(selectedVariant.price?)}</span>
+                            <span className="text-brand-dark font-normal">{selectedVariant.name} — GH₵ {money(selectedVariant.price)}</span>
                           ) : (
                             <span className="text-red-500 font-normal text-sm">Please select</span>
                           )}

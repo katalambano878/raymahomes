@@ -147,23 +147,23 @@ export default function PaymentPage() {
           <div className="space-y-3 mb-6">
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Subtotal</span>
-              <span className="text-gray-900">GH₵ {money(order?.subtotal?)}</span>
+              <span className="text-gray-900">GH₵ {money(order?.subtotal)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Shipping</span>
-              <span className="text-gray-900">GH₵ {money(order?.shipping_total?)}</span>
+              <span className="text-gray-900">GH₵ {money(order?.shipping_total)}</span>
             </div>
             {order?.discount_total > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Discount</span>
-                <span className="text-green-600">-GH₵ {money(order?.discount_total?)}</span>
+                <span className="text-green-600">-GH₵ {money(order?.discount_total)}</span>
               </div>
             )}
           </div>
 
           <div className="flex justify-between items-center pt-4 border-t border-gray-200">
             <span className="text-lg font-semibold text-gray-900">Total</span>
-            <span className="text-2xl font-bold text-brand-dark">GH₵ {money(order?.total?)}</span>
+            <span className="text-2xl font-bold text-brand-dark">GH₵ {money(order?.total)}</span>
           </div>
         </div>
 
@@ -219,7 +219,7 @@ export default function PaymentPage() {
           ) : (
             <>
               <i className="ri-secure-payment-line mr-2"></i>
-              Pay GH₵ {money(order?.total?)} with Mobile Money
+              Pay GH₵ {money(order?.total)} with Mobile Money
             </>
           )}
         </button>
