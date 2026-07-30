@@ -4,7 +4,15 @@ import Link from 'next/link';
 import { money } from '@/lib/format-money';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+
+async function fetchPublicOrder(ref: string) {
+  const res = await fetch(
+    `/api/storefront/orders/public?ref=${encodeURIComponent(ref)}&items=1`
+  );
+  if (!res.ok) return null;
+  const payload = await res.json();
+  return payload?.order ?? null;
+}
 
 function OrderSuccessContent() {
   const searchParams = useSearchParams();
@@ -23,16 +31,8 @@ function OrderSuccessContent() {
       }
 
       try {
-        const { data: orderData, error } = await supabase
-          .from('orders')
-          .select(`
-                    *,
-                    order_items (*)
-                `)
-          .eq('order_number', orderNumber)
-          .single();
-
-        if (error) throw error;
+        const orderData = await fetchPublicOrder(orderNumber);
+        if (!orderData) throw new Error('Order not found');
         setOrder(orderData);
 
         // If redirected from payment and order is still pending, try to verify
@@ -56,11 +56,7 @@ function OrderSuccessContent() {
     await new Promise(resolve => setTimeout(resolve, 3000));
     
     // Re-fetch order to check if callback already updated it
-    const { data: refreshed } = await supabase
-      .from('orders')
-      .select('*, order_items (*)')
-      .eq('order_number', orderNum)
-      .single();
+    const refreshed = await fetchPublicOrder(orderNum);
     
     if (refreshed?.payment_status === 'paid') {
       setOrder(refreshed);
@@ -81,12 +77,7 @@ function OrderSuccessContent() {
       console.log('Payment verification result:', result);
       
       if (result.success && result.payment_status === 'paid') {
-        // Re-fetch full order data
-        const { data: updated } = await supabase
-          .from('orders')
-          .select('*, order_items (*)')
-          .eq('order_number', orderNum)
-          .single();
+        const updated = await fetchPublicOrder(orderNum);
         if (updated) setOrder(updated);
       }
     } catch (err) {

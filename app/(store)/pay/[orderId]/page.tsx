@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { money } from '@/lib/format-money';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
 export default function PaymentPage() {
@@ -21,21 +20,18 @@ export default function PaymentPage() {
   useEffect(() => {
     async function fetchOrder() {
       try {
-        // Fetch order by ID (UUID) or order_number
-        let query = supabase
-          .from('orders')
-          .select('*')
-          .or(`id.eq.${orderId},order_number.eq.${orderId}`)
-          .single();
+        const res = await fetch(
+          `/api/storefront/orders/public?ref=${encodeURIComponent(orderId)}`
+        );
+        const payload = await res.json();
 
-        const { data, error: fetchError } = await query;
-
-        if (fetchError || !data) {
+        if (!res.ok || !payload?.order) {
           setError('Order not found. Please check your link and try again.');
           setLoading(false);
           return;
         }
 
+        const data = payload.order;
         setOrder(data);
 
         // If already paid, redirect to success page

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchWithTimeout } from '@/lib/payments/fetch-with-timeout';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { checkRateLimit, getClientIdentifier, RATE_LIMITS } from '@/lib/rate-limit';
 
@@ -109,7 +110,7 @@ export async function POST(req: Request) {
 
         console.log('[Payment] Initiating for order:', orderRef, '| Amount from DB:', amount, '| Callback:', payload.callback);
 
-        const response = await fetch('https://api.moolre.com/embed/link', {
+        const response = await fetchWithTimeout('https://api.moolre.com/embed/link', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -117,7 +118,7 @@ export async function POST(req: Request) {
                 'X-API-PUBKEY': process.env.MOOLRE_API_PUBKEY
             },
             body: JSON.stringify(payload)
-        });
+        }, 20_000);
 
         const result = await response.json();
         console.log('[Payment] Response status:', result.status, '| Has URL:', !!result.data?.authorization_url);

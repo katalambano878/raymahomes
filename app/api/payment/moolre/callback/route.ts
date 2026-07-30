@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchWithTimeout } from '@/lib/payments/fetch-with-timeout';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendOrderConfirmation } from '@/lib/notifications';
 import { checkRateLimit, getClientIdentifier, RATE_LIMITS } from '@/lib/rate-limit';
@@ -71,12 +72,12 @@ export async function POST(req: Request) {
         console.log('[Callback] Data keys:', body.data ? Object.keys(body.data).join(', ') : 'no data object');
 
         // ============================================================
-        // SECURITY: Verify callback secret if Moolre sent one.
-        // Note: Moolre does NOT always include `secret` in callback payloads.
-        // We can only reject when the secret IS present and mismatches —
-        // requiring its presence breaks production callbacks.
+        // SECURITY: Verify callback secret when Moolre sends one.
+        // Unsigned callbacks require a live Moolre status check before
+        // marking paid (see success path below).
         // ============================================================
         const expectedSecret = process.env.MOOLRE_CALLBACK_SECRET;
+        const secretVerified = !!(body.secret && expectedSecret && body.secret === expectedSecret);
         if (body.secret && expectedSecret && body.secret !== expectedSecret) {
             console.error('[Callback] SECRET MISMATCH — rejecting potential spoof. Got:',
                 String(body.secret).substring(0, 8) + '...');
@@ -85,8 +86,8 @@ export async function POST(req: Request) {
         if (!expectedSecret) {
             console.warn('[Callback] WARNING: MOOLRE_CALLBACK_SECRET not configured.');
         } else if (!body.secret) {
-            console.warn('[Callback] No secret in payload — proceeding without verification (Moolre often omits it).');
-        } else {
+            console.warn('[Callback] No secret in payload — will verify via Moolre status API.');
+        } else if (secretVerified) {
             console.log('[Callback] Secret verified OK');
         }
 
@@ -162,7 +163,7 @@ export async function POST(req: Request) {
             // Check if order exists
             const { data: existingOrder, error: fetchError } = await supabaseAdmin
                 .from('orders')
-                .select('id, order_number, payment_status, total')
+                .select('id, order_number, payment_status, total, metadata')
                 .eq('order_number', merchantOrderRef)
                 .single();
 
@@ -177,18 +178,86 @@ export async function POST(req: Request) {
                 return NextResponse.json({ success: true, message: 'Order already processed' });
             }
 
-            // ============================================================
-            // SECURITY: Verify amount matches — REJECT if mismatch
-            // ============================================================
-            const callbackAmount = data.amount ? parseFloat(data.amount) : (body.amount ? parseFloat(body.amount) : null);
-            if (callbackAmount !== null) {
-                const expectedAmount = Number(existingOrder.total);
-                if (Math.abs(callbackAmount - expectedAmount) > 0.01) {
-                    console.error('[Callback] AMOUNT MISMATCH — REJECTING! Expected:', expectedAmount, 'Got:', callbackAmount, 'Order:', merchantOrderRef);
+            const expectedAmount = Number(existingOrder.total);
+
+            if (secretVerified) {
+                // ============================================================
+                // SECURITY: Signed callback — verify amount from payload
+                // ============================================================
+                const callbackAmount = data.amount ? parseFloat(data.amount) : (body.amount ? parseFloat(body.amount) : null);
+                if (callbackAmount !== null) {
+                    if (Math.abs(callbackAmount - expectedAmount) > 0.01) {
+                        console.error('[Callback] AMOUNT MISMATCH — REJECTING! Expected:', expectedAmount, 'Got:', callbackAmount, 'Order:', merchantOrderRef);
+                        return NextResponse.json({
+                            success: false,
+                            message: 'Payment amount does not match order total'
+                        }, { status: 400 });
+                    }
+                }
+            } else if (!body.secret) {
+                // ============================================================
+                // SECURITY: Unsigned callback — confirm via Moolre status API
+                // ============================================================
+                if (!process.env.MOOLRE_API_USER || !process.env.MOOLRE_API_PUBKEY) {
+                    console.error('[Callback] Unsigned callback but Moolre API credentials missing');
                     return NextResponse.json({
                         success: false,
-                        message: 'Payment amount does not match order total'
+                        message: 'Payment verification unavailable'
+                    }, { status: 503 });
+                }
+
+                const externalRefToCheck = existingOrder.metadata?.moolre_externalref || rawExternalRef;
+                console.log('[Callback] Verifying unsigned callback via Moolre status API:', externalRefToCheck);
+
+                let moolreApiVerified = false;
+                try {
+                    const checkResponse = await fetchWithTimeout('https://api.moolre.com/embed/status', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-API-USER': process.env.MOOLRE_API_USER,
+                            'X-API-PUBKEY': process.env.MOOLRE_API_PUBKEY
+                        },
+                        body: JSON.stringify({ externalref: externalRefToCheck })
+                    }, 15_000);
+
+                    const checkResult = await checkResponse.json();
+                    console.log('[Callback] Moolre status API response:', JSON.stringify(checkResult));
+
+                    const statusStr = String(checkResult.data?.status || '').toLowerCase();
+                    moolreApiVerified =
+                        (checkResult.status === 1 && checkResult.data) &&
+                        (statusStr === 'success' || statusStr === 'successful' || statusStr === 'completed' || statusStr === 'paid');
+
+                    if (moolreApiVerified && checkResult.data?.amount) {
+                        const paidAmount = parseFloat(checkResult.data.amount);
+                        if (Math.abs(paidAmount - expectedAmount) > 0.01) {
+                            console.error('[Callback] AMOUNT MISMATCH via API! Expected:', expectedAmount, 'Got:', paidAmount);
+                            moolreApiVerified = false;
+                        }
+                    }
+                } catch (moolreError: any) {
+                    console.warn('[Callback] Moolre status API check failed:', moolreError.message);
+                }
+
+                if (!moolreApiVerified) {
+                    console.error('[Callback] Unsigned callback not confirmed by Moolre API:', merchantOrderRef);
+                    return NextResponse.json({
+                        success: false,
+                        message: 'Payment not confirmed by payment provider'
                     }, { status: 400 });
+                }
+            } else {
+                // Secret present but could not be verified (e.g. MOOLRE_CALLBACK_SECRET unset)
+                const callbackAmount = data.amount ? parseFloat(data.amount) : (body.amount ? parseFloat(body.amount) : null);
+                if (callbackAmount !== null) {
+                    if (Math.abs(callbackAmount - expectedAmount) > 0.01) {
+                        console.error('[Callback] AMOUNT MISMATCH — REJECTING! Expected:', expectedAmount, 'Got:', callbackAmount, 'Order:', merchantOrderRef);
+                        return NextResponse.json({
+                            success: false,
+                            message: 'Payment amount does not match order total'
+                        }, { status: 400 });
+                    }
                 }
             }
 
@@ -223,14 +292,11 @@ export async function POST(req: Request) {
                 console.error('[Callback] Customer stats failed:', statsError.message);
             }
 
-            // Send SMS + Email notifications
-            try {
-                console.log('[Callback] Sending notifications for:', orderJson.order_number);
-                await sendOrderConfirmation(orderJson);
-                console.log('[Callback] Notifications sent!');
-            } catch (notifyError: any) {
+            // Send SMS + Email notifications (fire-and-forget — don't block callback response)
+            console.log('[Callback] Queueing notifications for:', orderJson.order_number);
+            void sendOrderConfirmation(orderJson).catch((notifyError: Error) => {
                 console.error('[Callback] Notification failed:', notifyError.message);
-            }
+            });
 
             return NextResponse.json({ success: true, message: 'Payment verified and Order Updated' });
 

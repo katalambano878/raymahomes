@@ -38,6 +38,9 @@ export function getPool(): Pool {
     connectionString,
     max: Number(process.env.PG_POOL_MAX || 10),
     idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS || 10_000),
+    statement_timeout: Number(process.env.PG_STATEMENT_TIMEOUT_MS || 30_000),
+    query_timeout: Number(process.env.PG_QUERY_TIMEOUT_MS || 30_000),
     // Self-hosted Postgres on the same host / private network: TLS optional.
     ssl:
       process.env.PGSSL === "require"

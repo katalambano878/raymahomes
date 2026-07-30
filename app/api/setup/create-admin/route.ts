@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
+import type { User } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const DEFAULT_ADMIN_EMAIL = 'admin@raymakitchenware.com';
-const DEFAULT_ADMIN_PASSWORD = 'AdminTest123!';
 
 function checkSecret(request: Request): boolean {
   const secret = process.env.CREATE_ADMIN_SECRET;
-  if (!secret) return false;
+  if (!secret || secret.length < 16) return false;
   const authHeader = request.headers.get('authorization');
   if (authHeader === `Bearer ${secret}`) return true;
   try {
@@ -24,9 +24,16 @@ export async function GET(request: Request) {
   if (!checkSecret(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const password = process.env.ADMIN_PASSWORD;
+  if (!password || password.length < 12) {
+    return NextResponse.json(
+      { error: 'ADMIN_PASSWORD env must be set (min 12 chars) for GET bootstrap' },
+      { status: 400 }
+    );
+  }
   return createAdmin(
     process.env.ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL,
-    process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD
+    password
   );
 }
 
@@ -43,11 +50,11 @@ export async function POST(request: Request) {
       body = {};
     }
     const email = body.email || process.env.ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL;
-    const password = body.password || process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
+    const password = body.password || process.env.ADMIN_PASSWORD;
 
-    if (!email || !password) {
+    if (!email || !password || password.length < 12) {
       return NextResponse.json(
-        { error: 'Missing email or password. Send JSON body: { "email", "password" }.' },
+        { error: 'Missing email or password (min 12 chars). Send JSON body: { "email", "password" }.' },
         { status: 400 }
       );
     }
@@ -74,7 +81,7 @@ async function createAdmin(
   if (authError) {
     if (authError.message?.includes('already been registered')) {
       const { data: list } = await supabaseAdmin.auth.admin.listUsers();
-      const user = list?.users?.find((u) => u.email === email);
+      const user = list?.users?.find((u: User) => u.email === email);
       if (user) {
         const { error: profileError } = await supabaseAdmin
           .from('profiles')

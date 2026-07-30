@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchWithTimeout } from '@/lib/payments/fetch-with-timeout';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendOrderConfirmation } from '@/lib/notifications';
 import { checkRateLimit, getClientIdentifier, RATE_LIMITS } from '@/lib/rate-limit';
@@ -87,7 +88,7 @@ export async function POST(req: Request) {
         console.log('[Verify] Querying Moolre with externalref:', externalRefToCheck);
 
         try {
-            const checkResponse = await fetch('https://api.moolre.com/embed/status', {
+            const checkResponse = await fetchWithTimeout('https://api.moolre.com/embed/status', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -95,7 +96,7 @@ export async function POST(req: Request) {
                     'X-API-PUBKEY': process.env.MOOLRE_API_PUBKEY
                 },
                 body: JSON.stringify({ externalref: externalRefToCheck })
-            });
+            }, 15_000);
 
             const checkResult = await checkResponse.json();
             console.log('[Verify] Moolre API response:', JSON.stringify(checkResult));
