@@ -114,6 +114,15 @@ Existing RPCs used: `mark_order_paid`, `update_customer_stats`, `upsert_customer
 
 ---
 
+## Deploy verification (2026-07-30)
+
+| Environment | Status |
+|-------------|--------|
+| Staging `raymahomes-staging` | ACL live — `/rest/v1/orders` → 403, products → 200, public order API → 404 for unknown ref |
+| Production `raymahomes-app` | ACL live — `/rest/v1/orders` → 403 (`Authentication required to list orders`) |
+
+Commit: `7f9df0f` on `staging/plain-postgres`
+
 ## Manual actions required
 
 ### Deploy
