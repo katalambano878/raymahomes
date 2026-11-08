@@ -107,7 +107,8 @@ export default function Footer() {
         {/* Bottom Bar */}
         <div className="pt-8 border-t border-white/10 flex flex-col md:flex-row justify-between items-center gap-6">
           <p className="text-white/40 text-sm font-light">
-            &copy; {new Date().getFullYear()} {siteName}. All rights reserved.
+            &copy; {new Date().getFullYear()} {siteName}. All rights reserved. &middot; Powered by{' '}
+            <a href="https://doctorbarns.com" target="_blank" rel="noopener" className="text-white/40 hover:underline">Doctor Barns Tech</a>
           </p>
           <div className="flex items-center gap-6">
             <span className="text-white/40 text-sm font-light uppercase tracking-widest hidden md:inline">Accepted Payments</span>
