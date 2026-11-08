@@ -1,11 +1,11 @@
-import Hero from '../../New Frontend/app/Hero';
-import CategoryChips from '../../New Frontend/app/CategoryChips';
-import FeaturedCategories from '../../New Frontend/app/FeaturedCategories';
+import Hero from '../../new-frontend/app/Hero';
+import CategoryChips from '../../new-frontend/app/CategoryChips';
+import FeaturedCategories from '../../new-frontend/app/FeaturedCategories';
 import FeaturedProducts from '@/components/FeaturedProducts';
-import ValueProps from '../../New Frontend/app/ValueProps';
-import BundleSection from '../../New Frontend/app/BundleSection';
-import SocialProof from '../../New Frontend/app/SocialProof';
-import Newsletter from '../../New Frontend/app/Newsletter';
+import ValueProps from '../../new-frontend/app/ValueProps';
+import BundleSection from '../../new-frontend/app/BundleSection';
+import SocialProof from '../../new-frontend/app/SocialProof';
+import Newsletter from '../../new-frontend/app/Newsletter';
 import AnimatedSection from '@/components/AnimatedSection';
 
 export default function Home() {
